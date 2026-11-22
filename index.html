@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#180f10">
+  <meta name="description" content="执起两根影签，演一出张生与莺莺的月下相会。四景数字皮影互动剧。">
+  <title>掌中戏 · 西厢月下</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="stage.css">
+</head>
+<body>
+<main id="app" class="playhouse" data-state="idle" data-scene="0">
+  <header class="mast">
+    <div class="signature"><span class="seal" aria-hidden="true">影</span><h1>掌中戏</h1><span class="mast-work">西厢月下</span></div>
+    <div class="tools">
+      <button type="button" id="cameraBtn" class="tool" aria-pressed="false"><span class="lens-dot" aria-hidden="true"></span><span id="camLabel">开启摄像头</span></button>
+      <details id="settings">
+        <summary>演出设置</summary>
+        <div class="menu">
+          <button type="button" id="audioToggle" aria-pressed="false">静音</button>
+          <button type="button" id="voiceToggle">配音 · 原声</button>
+          <button type="button" id="fullScreen">进入全屏</button>
+          <hr>
+          <button type="button" id="nextBeat" disabled>跳过本句</button>
+          <button type="button" id="nextScene" disabled>直接换景</button>
+          <button type="button" id="replay" disabled>从头重演</button>
+        </div>
+      </details>
+    </div>
+  </header>
+  <section class="theatre" id="stage" aria-label="皮影戏台，可拖动张生与莺莺" tabindex="0">
+    <img class="bg active" id="bg0" src="scene1.webp" alt="" fetchpriority="high">
+    <img class="bg" id="bg1" src="scene2.webp" alt="" decoding="async">
+    <img class="bg" id="bg2" src="scene3.webp" alt="" decoding="async">
+    <img class="bg" id="bg3" src="scene4.webp" alt="" decoding="async">
+    <div class="lamplight" aria-hidden="true"></div>
+    <div class="actor zhang" id="zhang" aria-label="张生·可动皮影"><div class="limb rear-limb"><img class="upper-bone" src="zhang-rear-upper.webp" alt=""><img class="lower-bone" src="zhang-rear-lower.webp" alt=""><span class="elbow-pin"></span></div><img class="torso" src="zhang-torso.webp" alt=""><img class="head-bone" src="zhang-head.webp" alt=""><div class="limb front-limb"><img class="upper-bone" src="zhang-front-upper.webp" alt=""><img class="lower-bone" src="zhang-front-lower.webp" alt=""><span class="elbow-pin"></span></div><span class="rod rod-a" aria-hidden="true"></span></div><div class="actor ying" id="ying" aria-label="莺莺·可动皮影"><div class="limb rear-limb"><img class="upper-bone" src="ying-rear-upper.webp" alt=""><img class="lower-bone" src="ying-rear-lower.webp" alt=""><span class="elbow-pin"></span></div><img class="torso" src="ying-torso.webp" alt=""><img class="head-bone" src="ying-head.webp" alt=""><div class="limb front-limb"><img class="upper-bone" src="ying-front-upper.webp" alt=""><img class="lower-bone" src="ying-front-lower.webp" alt=""><span class="elbow-pin"></span></div><span class="rod rod-a" aria-hidden="true"></span></div>
+    <div class="startveil" id="startveil"><div class="cover-copy"><p id="coverKicker">四景皮影戏</p><h2 id="coverTitle">西厢月下</h2><p class="cover-verse" id="coverSubtitle">待月西厢下，迎风户半开。</p></div></div>
+    <div class="sceneCurtain" id="curtain" aria-hidden="true"><div><p id="curtainMood"></p><h2 id="curtainTitle"></h2></div></div>
+    <div class="camera" id="camera" hidden><div class="lens-frame" id="lensFrame"><video id="cameraVideo" playsinline muted autoplay></video><canvas id="landmarkOverlay" width="320" height="180" aria-hidden="true"></canvas></div><span id="cameraStatus">请把手放进画面</span></div>
+  </section>
+  <section class="desk" aria-label="演出控制台">
+    <div class="cue-row">
+      <div class="cue">
+        <div class="cue-meta"><span class="cue-rule" aria-hidden="true"></span><span id="speaker">开场</span><span id="chapterTime">静候启幕</span></div>
+        <p id="caption" aria-live="polite" aria-atomic="true">执起影签，让张生与莺莺在月下相会。</p>
+        <p id="tip">可用摄像头操影，也可直接触屏或用键盘演出。</p>
+      </div>
+      <div class="actions">
+        <button type="button" id="startCamera" class="button primary">用手势开演</button>
+        <button type="button" id="start" class="button ghost">用触屏或键盘开演</button>
+        <div id="gesture" class="gate" hidden>
+          <span id="actionTitle"></span>
+          <div class="meter" role="progressbar" id="actionMeter" aria-label="手势完成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="actionFill"></i></div>
+          <span id="actionHelp"></span>
+        </div>
+        <button type="button" id="move" class="button primary" hidden>移步入庭</button>
+        <button type="button" id="bow" class="button primary" hidden>作揖见礼</button>
+        <button type="button" id="flourish" class="button primary" hidden>举袖亮相</button>
+        <button type="button" id="skipLine" class="button quiet" hidden>下一句</button>
+      </div>
+    </div>
+    <p id="cameraNotice" role="status" aria-live="polite"></p>
+    <ol class="score" id="score" aria-label="四景演出进度">
+      <li><span>起</span>春庭待月</li><li><span>承</span>月门初见</li><li><span>转</span>花径对答</li><li><span>合</span>满月谢幕</li>
+    </ol>
+    <div class="screen-reader" id="progressText" role="status"></div><div class="screen-reader" id="progressFill"></div>
+  </section>
+  <footer><span>《西厢记》意象改编</span><span id="chapterIndex">四景 · 一出</span></footer>
+</main>
+<script src="story.js"></script>
+<script src="show.js"></script>
+<script src="palm.js"></script>
+<script src="hands.js"></script>
+</body>
+</html>
