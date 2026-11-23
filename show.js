@@ -11,8 +11,8 @@
   const clamp = (v, low, high) => Math.min(high, Math.max(low, v));
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   const cast = {
-    zhang: {x:.54, y:.53, lastMove:-Infinity, angles:[]},
-    ying:  {x:.73, y:.53, lastMove:-Infinity, angles:[]}
+    zhang: {x:.54, y:.53, twist:0, lastMove:-Infinity, angles:[]},
+    ying:  {x:.73, y:.53, twist:0, lastMove:-Infinity, angles:[]}
   };
   const entrances = [[.34,.68],[.35,.68],[.34,.69],[.40,.62]];
   const cueText = {
@@ -26,11 +26,11 @@
   music.loop = true; music.volume = .18; voice.volume = .9;
   const media = path => window.SHADOWPLAY_PORTABLE?.media?.[path] || path;
   let state = 'idle', scene = -1, beat = -1, pending = null, epoch = 0;
-  let timer = 0, fast = false, muted = false, voiceMode = 'offline', currentSpeech = null;
+  let timer = 0, fast = false, muted = false, dialogueMode = 'auto', controlMode = 'basic', speechCompleted = false;
   let spokenBy = '', performed = '', gateOrigin = {}, manualOrigin = null, drag = null;
   let frame = 0, lastFrame = 0, stageWidth = 1;
   const allowed = () => ['speaking','action','performing'].includes(state);
-  const stateInfo = () => ({actIndex:scene,beatIndex:beat,state,pending,epoch,caption:el('caption').textContent,voiceMode,progress:el('progressFill').style.width});
+  const stateInfo = () => ({actIndex:scene,beatIndex:beat,state,pending,epoch,caption:el('caption').textContent,voiceMode:'offline',dialogueMode,controlMode,speechCompleted,progress:el('progressFill').style.width});
   const positions = () => ({zhang:cast.zhang.x,ying:cast.ying.x});
   const span = () => cast.ying.x - cast.zhang.x;
   function place(name, x, y) {
@@ -56,16 +56,16 @@
     for (const name of names) {
       const c=cast[name], sign=name==='zhang'?1:-1, talking=spokenBy===name;
       const walking=!reducedMotion.matches && now-c.lastMove<230;
-      const lift=clamp((.53-c.y)*92,-27,39);
+      const lift=clamp((.53-c.y)*92,-27,39), twist=c.twist||0;
       const greeting=performed==='bow', finale=performed==='flourish';
       const step=walking?Math.sin(now*.024+(sign===1?0:1.4)):0;
       const nod=talking&&!reducedMotion.matches?Math.sin(now*.004)*1.9:0;
       const targets=[
-        sign*((finale?-37:greeting?-21:talking?-4:0)-lift*.88),
-        sign*((finale?29:greeting?10:0)+lift*.55),
+        sign*((finale?-37:greeting?-21:talking?-4:0)-lift*.88+twist*.65),
+        sign*((finale?29:greeting?10:0)+lift*.55-twist*.34),
         sign*((finale?-19:greeting?-17:3)-lift*.26),
         sign*((finale?17:greeting?10:0)+lift*.24),
-        sign*(greeting?12:finale?-5:nod),sign*(greeting?9:finale?-2:0)+step*1.5,step*2.8
+        sign*(greeting?12:finale?-5:nod+twist*.12),sign*(greeting?9:finale?-2:0)+step*1.5,step*2.8
       ];
       const props=['--front-shoulder','--rear-shoulder','--front-elbow','--rear-elbow','--neck','--body-bow','--bob'];
       for(let i=0;i<props.length;i++) {
@@ -80,11 +80,11 @@
   function requestPose(){if(!frame&&!document.hidden){lastFrame=performance.now();frame=requestAnimationFrame(changePose);}}
   document.addEventListener('visibilitychange',()=>{if(!document.hidden) requestPose();});
   function stopVoice(){
-    voice.onended=voice.onerror=null;voice.pause();
-    if(currentSpeech){currentSpeech.onend=currentSpeech.onerror=null;currentSpeech=null;window.speechSynthesis?.cancel();}
+    voice.onended=voice.onerror=null;
+    voice.pause();
   }
   function invalidate(){
-    ++epoch;clearTimeout(timer);stopVoice();spokenBy='';performed='';pending=null;manualOrigin=null;drag=null;
+    ++epoch;clearTimeout(timer);stopVoice();speechCompleted=false;spokenBy='';performed='';pending=null;manualOrigin=null;drag=null;
     return epoch;
   }
   function later(fn, ms, token=epoch){
@@ -111,6 +111,9 @@
     if(el('actionHelp').textContent!==label)el('actionHelp').textContent=label;
   }
   function updateInput(){
+    el('modeHint').textContent=controlMode==='basic'
+      ? '基础手势：移动手掌操影，双手靠拢作揖、举手亮相。'
+      : '手指进阶：拇指与食指捏合执签，松开停住，转腕调整皮影姿态；需要完整手部识别。';
     const live=!!window.SHADOWPLAY_RIG_V6?.getState().active;
     if(state==='action'){
       el('tip').textContent=cueText[pending][2];
@@ -124,7 +127,10 @@
     const waiting=state==='idle'||state==='finished';
     el('startveil').classList.toggle('off',!waiting);
     el('start').hidden=el('startCamera').hidden=!waiting;
-    el('skipLine').hidden=state!=='speaking';
+    el('skipLine').hidden=el('prevLine').hidden=state!=='speaking';
+    el('prevLine').disabled=state!=='speaking'||beat===0||story[scene]?.beats[beat-1]?.who==='action';
+    for(const [id,active] of [['basicMode',controlMode==='basic'],['advancedMode',controlMode==='advanced'],['autoDialogue',dialogueMode==='auto'],['manualDialogue',dialogueMode==='manual']])
+      el(id).setAttribute('aria-pressed',String(active));
     el('nextBeat').disabled=el('nextScene').disabled=!allowed();
     el('nextBeat').textContent=state==='action'?'略过本动作':'跳过本句';
     el('nextScene').textContent=scene===3?'直接谢幕':'直接换景';
@@ -133,27 +139,59 @@
     el('move').textContent=pending==='approach'?'两人靠近':'移步入庭';
     el('bow').hidden=pending!=='bow';el('flourish').hidden=pending!=='flourish';
     el('gesture').hidden=true;
-    el('chapterTime').textContent={idle:'静候启幕',transition:'换景',speaking:'对白',action:'轮到你操影',performing:'动作已完成',ending:'谢幕',finished:'四景已演毕'}[state];
+    el('chapterTime').textContent=state==='speaking'&&speechCompleted
+      ? (dialogueMode==='auto'?'对白已结束':'等待下一句')
+      : {idle:'静候启幕',transition:'换景',speaking:'对白',action:'轮到你操影',performing:'动作已完成',ending:'谢幕',finished:'四景已演毕'}[state];
     setProgress();updateInput();requestPose();
   }
   function playMusic(){
     music.pause();music.src=media('music'+(scene+1)+'.mp3');music.muted=muted;
     if(!muted)music.play().catch(()=>{});
   }
+  function speechEnd(token){
+    if(token!==epoch||state!=='speaking'||speechCompleted)return;
+    speechCompleted=true;
+    el('chapterTime').textContent=dialogueMode==='auto'?'对白已结束':'等待下一句';
+    if(dialogueMode==='auto')later(next,650,token);
+  }
   function speak(line){
-    const token=epoch, duration=(line.duration||5)*1000;
-    // The subtitle clock also drives blocked playback, muted playback and missing system voices.
-    later(()=>next(),duration+250,token);
-    if(fast||muted) return;
-    const ended=()=>{if(epoch===token)later(()=>next(),280,token);};
-    if(voiceMode==='system' && window.speechSynthesis && window.SpeechSynthesisUtterance){
-      const phrase=new SpeechSynthesisUtterance(line.text);currentSpeech=phrase;phrase.lang='zh-CN';phrase.rate=1.04;
-      phrase.pitch=line.who==='莺莺'?1.12:line.who==='张生'?.92:1;
-      phrase.onend=ended;phrase.onerror=()=>{};window.speechSynthesis.speak(phrase);
-    } else {
-      voice.src=media(line.src);voice.muted=muted;voice.onended=ended;
-      voice.play().then(()=>{if(epoch===token&&state==='speaking'&&Number.isFinite(voice.duration))later(()=>next(),(voice.duration-voice.currentTime)*1000+900,token);}).catch(()=>{});
+    const token=epoch, duration=Math.max(1200,(Number(line.duration)||5)*1000);
+    if(fast){later(()=>speechEnd(token),35,token);return;}
+    const started=performance.now();
+    const fallback=()=>{
+      if(token===epoch&&!speechCompleted)later(()=>speechEnd(token),Math.max(0,duration-(performance.now()-started)),token);
+    };
+    voice.src=media(line.src);voice.muted=muted;
+    voice.onended=()=>speechEnd(token);
+    voice.onerror=fallback;
+    later(()=>speechEnd(token),duration+1800,token);
+    voice.play().then(()=>{
+      if(token===epoch&&!speechCompleted){
+        const actual=Number.isFinite(voice.duration)?voice.duration*1000:0;
+        later(()=>speechEnd(token),Math.max(duration,actual)+1800,token);
+      }
+    }).catch(fallback);
+  }
+  function setDialogueMode(mode){
+    if(!['auto','manual'].includes(mode)||dialogueMode===mode)return;
+    dialogueMode=mode;
+    if(state==='speaking'&&speechCompleted){
+      clearTimeout(timer);
+      if(mode==='auto')later(next,650);
     }
+    sync();
+  }
+  function setControlMode(mode){
+    if(!['basic','advanced'].includes(mode)||controlMode===mode)return;
+    controlMode=mode;
+    for(const name of names)cast[name].twist=0;
+    window.SHADOWPLAY_RIG_V6?.resetInput?.();
+    sync();
+  }
+  function setWristTwist(name,degrees){
+    if(!cast[name])return;
+    cast[name].twist=clamp(degrees,-38,38);
+    requestPose();
   }
   function next(){
     const token=invalidate();
@@ -217,19 +255,24 @@
     return Math.abs(old-cast.zhang.x)>.0001;
   }
   function advanceBeat(){if(!allowed())return false;next();return true;}
+  function previousLine(){
+    if(state!=='speaking'||beat<1||story[scene].beats[beat-1].who==='action')return false;
+    beat-=2;next();return true;
+  }
   function advanceScene(){if(!allowed())return false;changeScene(scene+1);return true;}
   el('start').onclick=()=>{window.SHADOWPLAY_RIG_V6?.stopCamera();begin();};
   el('move').onclick=()=>action(pending);el('bow').onclick=()=>action('bow');el('flourish').onclick=()=>action('flourish');
   el('replay').onclick=begin;el('nextScene').onclick=()=>{el('settings').open=false;advanceScene();};
   el('nextBeat').onclick=()=>{el('settings').open=false;advanceBeat();};el('skipLine').onclick=advanceBeat;
+  el('prevLine').onclick=previousLine;
+  el('basicMode').onclick=()=>setControlMode('basic');
+  el('advancedMode').onclick=()=>setControlMode('advanced');
+  el('autoDialogue').onclick=()=>setDialogueMode('auto');
+  el('manualDialogue').onclick=()=>setDialogueMode('manual');
   el('audioToggle').onclick=()=>{
     muted=!muted;music.muted=voice.muted=muted;el('audioToggle').textContent=muted?'开启声音':'静音';
     el('audioToggle').setAttribute('aria-pressed',String(muted));
-    if(muted && currentSpeech){currentSpeech.onend=null;window.speechSynthesis.cancel();currentSpeech=null;}
     if(!muted&&scene>=0&&state!=='finished') music.play().catch(()=>{});
-  };
-  el('voiceToggle').onclick=()=>{
-    voiceMode=voiceMode==='offline'?'system':'offline';el('voiceToggle').textContent=voiceMode==='offline'?'配音 · 原声':'配音 · 系统语音';
   };
   const full=el('fullScreen');
   if(!document.documentElement.requestFullscreen||document.fullscreenEnabled===false)full.hidden=true;
@@ -264,7 +307,7 @@
     if(!e.repeat&&key==='r') begin();
   });
   names.forEach(name=>place(name,cast[name].x,.53));
-  window.SHADOWPLAY_V4={begin,action,move,advanceBeat,advanceScene,setGesturePosition,resetGestureAnchor(){manualOrigin=null;},setFast(v){fast=!!v;},getState:stateInfo,positions,placeTracked,setMeter,updateInput,
+  window.SHADOWPLAY_V4={begin,action,move,advanceBeat,previousLine,advanceScene,setDialogueMode,setControlMode,setWristTwist,setGesturePosition,resetGestureAnchor(){manualOrigin=null;},setFast(v){fast=!!v;},getState:stateInfo,positions,placeTracked,setMeter,updateInput,
     stopAudio(){stopVoice();music.pause();},
     getAudio:()=>({voicePaused:voice.paused,voiceTime:voice.currentTime,voiceDuration:voice.duration,musicPaused:music.paused,musicTime:music.currentTime})};
   sync();

@@ -7,7 +7,7 @@
   const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
   const links=[[0,1,2,3,4],[0,5,6,7,8],[0,9,10,11,12],[0,13,14,15,16],[0,17,18,19,20],[5,9,13,17]];
   const tracks={zhang:null,ying:null};
-  let stageKey='', count=-1, gate=null, handCount=0, frames=0, previousRoles=[];
+  let stageKey='', count=-1, gate=null, handCount=0, frames=0, previousRoles=[], soloGrip=null;
   let phase='off',generation=0,stream=null,model=null,autoStart=false,delegate=null;
   let frameHandle=null, cameraClock=0, videoClock=-1, failureCount=0, lastPresence=-1;
   let visionLibrary=null, portableURLs=new Map();
@@ -21,15 +21,21 @@
     show.updateInput();
   }
   function clearInput(){
-    stageKey='';count=-1;previousRoles=[];tracks.zhang=tracks.ying=null;gate=null;handCount=0;
+    stageKey='';count=-1;previousRoles=[];tracks.zhang=tracks.ying=null;gate=null;handCount=0;soloGrip=null;
     show.resetGestureAnchor();show.setMeter(0,'等待手势');
+    show.setWristTwist('zhang',0);show.setWristTwist('ying',0);
   }
   function describeHand(hand){
-    const ids=hand.length===7?[0,1,2,3,4]:[0,5,9,13,17];
+    const full=hand.length>=21;
+    const ids=full?[0,5,9,13,17]:[0,1,2,3,4];
+    const palmSpan=full?Math.hypot(hand[5].x-hand[17].x,hand[5].y-hand[17].y):0;
+    const tipGap=full?Math.hypot(hand[4].x-hand[8].x,hand[4].y-hand[8].y):Infinity;
     return {
       x:1-ids.reduce((n,i)=>n+hand[i].x,0)/ids.length,
       y:ids.reduce((n,i)=>n+hand[i].y,0)/ids.length,
-      size:Math.hypot(hand[ids[1]].x-hand[ids[4]].x,hand[ids[1]].y-hand[ids[4]].y)
+      size:Math.hypot(hand[ids[1]].x-hand[ids[4]].x,hand[ids[1]].y-hand[ids[4]].y),
+      full, gripRatio:tipGap/Math.max(.025,palmSpan),
+      angle:full?Math.atan2(hand[17].y-hand[5].y,hand[17].x-hand[5].x):0
     };
   }
   function draw(hands){
@@ -65,21 +71,47 @@
     }
     const s=show.getState(), coords=hands.map(describeHand).sort((a,b)=>a.x-b.x);
     const roles=assignRoles(coords,s.actIndex);
-    const key=s.actIndex+'/'+(s.pending?s.epoch:s.state==='transition'?'换景':'演出');
+    const precision=s.controlMode==='advanced'&&coords.every(p=>p.full);
+    const key=s.actIndex+'/'+s.controlMode+'/'+precision+'/'+(s.pending?s.epoch:s.state==='transition'?'换景':'演出');
     const gapInTime=dt>2.5 || dt<0;
     const rebase=stageKey!==key||count!==coords.length||previousRoles.join()!==roles.join()||gapInTime;
+    if(rebase)soloGrip=null;
     const actorPos=show.positions();
     const alpha=1-Math.exp(-clamp(dt||.033,.012,.40)*17);
     roles.forEach((name,i)=>{
       const p=coords[i],t=tracks[name];
-      if(rebase||!t) tracks[name]={x:p.x,y:p.y,origin:p.x,actor:actorPos[name],size:p.size};
-      else {t.x+=(p.x-t.x)*alpha;t.y+=(p.y-t.y)*alpha;t.size=p.size;}
+      if(rebase||!t) tracks[name]={x:p.x,y:p.y,origin:p.x,actor:actorPos[name],size:p.size,angle:p.angle,pinched:p.gripRatio<.36,grab:null};
+      else {
+        t.x+=(p.x-t.x)*alpha;t.y+=(p.y-t.y)*alpha;t.size=p.size;t.angle=p.angle;
+        t.pinched=p.gripRatio<(t.pinched ? .48 : .36);
+      }
     });
     count=handCount;stageKey=key;previousRoles=roles;
     if(rebase||!gate||gate.epoch!==s.epoch)gate=baseGate(s,roles);
     const dest={};
-    for(const name of roles){const t=tracks[name];dest[name]={x:t.actor+(t.x-t.origin)*.95,y:t.y};}
-    if(s.actIndex===0 && roles.length===2){
+    if(precision&&s.actIndex===0){
+      if(!soloGrip||!tracks[soloGrip].pinched)soloGrip=roles.find(name=>tracks[name].pinched)||null;
+    }
+    for(const name of roles){
+      const t=tracks[name], actor=s.actIndex===0?'zhang':name;
+      if(precision){
+        if(t.pinched&&(s.actIndex!==0||name===soloGrip)){
+          if(!t.grab)t.grab={x:t.x,actor:actorPos[actor],angle:t.angle};
+          dest[actor]={x:t.grab.actor+(t.x-t.grab.x)*.95,y:t.y};
+          let turn=t.angle-t.grab.angle;
+          while(turn>Math.PI)turn-=2*Math.PI;
+          while(turn< -Math.PI)turn+=2*Math.PI;
+          show.setWristTwist(actor,turn*180/Math.PI);
+        }else{
+          t.grab=null;
+          if(s.actIndex!==0||!soloGrip)show.setWristTwist(actor,0);
+        }
+      }else{
+        t.grab=null;show.setWristTwist(name,0);
+        dest[name]={x:t.actor+(t.x-t.origin)*.95,y:t.y};
+      }
+    }
+    if(!precision && s.actIndex===0 && roles.length===2){
       const t=Math.abs(tracks.zhang.x-tracks.zhang.origin)>=Math.abs(tracks.ying.x-tracks.ying.origin)?tracks.zhang:tracks.ying;
       dest.zhang={x:tracks.zhang.actor+(t.x-t.origin)*.95,y:t.y};delete dest.ying;
     }
@@ -88,24 +120,30 @@
     }
     show.placeTracked(dest);
     if(!s.pending){
-      lens(handCount===2?'双手已执签':'已执签 · '+(roles[0]==='zhang'?'张生':'莺莺'));return;
+      if(s.controlMode==='advanced')lens(!precision?'兼容模型：自动使用基础操影':roles.some(r=>tracks[r].pinched)?'已捏合执签 · 转腕可调姿':'松开影签 · 捏合可操影');
+      else lens(handCount===2?'双手已执签':'已执签 · '+(roles[0]==='zhang'?'张生':'莺莺'));
+      return;
     }
     const paired=roles.length===2, left=tracks.zhang,right=tracks.ying;
     let progress=0,help='',done=false;
     if(s.pending==='move'){
       const travel=Math.abs(show.positions().zhang-gate.start.zhang);
-      progress=travel/.058;help='横向移掌';done=progress>=1;
+      progress=travel/.058;help=precision?'捏合影签后横向移动':'横向移掌';done=progress>=1;
     }else if(!paired){
       gate.hold=0;help='需要两只手';
     }else{
       const gap=Math.max(0,right.x-left.x), both=show.positions();
       const stageGap=both.ying-both.zhang, elapsed=rebase?0:clamp(dt,0,.34);
       if(s.pending==='approach'){
-        if(gap>=gate.peakGap){gate.peakGap=gap;gate.stageAtPeak=stageGap;}
-        const close=gate.peakGap-gap;
-        progress=Math.min(close/.12,Math.max(0,gate.stageAtPeak-stageGap)/.067);
-        gate.hold=progress>=1?gate.hold+elapsed:0;
-        done=gate.hold>=.09;help=gate.peakGap<.20?'先把双手分开':'向中间合拢';
+        if(precision&&!roles.every(r=>tracks[r].pinched)){
+          gate.hold=0;help='双手捏合影签再靠近';
+        }else{
+          if(gap>=gate.peakGap){gate.peakGap=gap;gate.stageAtPeak=stageGap;}
+          const close=gate.peakGap-gap;
+          progress=Math.min(close/.12,Math.max(0,gate.stageAtPeak-stageGap)/.067);
+          gate.hold=progress>=1?gate.hold+elapsed:0;
+          done=gate.hold>=.09;help=gate.peakGap<.20?'先把双手分开':'向中间合拢';
+        }
       }else{
         const aspect=video.videoWidth?video.videoHeight/video.videoWidth:.75;
         const near=Math.hypot(gap,(left.y-right.y)*aspect)<clamp(.17+(left.size+right.size)*.28,.19,.255);
@@ -240,7 +278,7 @@
   cover.addEventListener('click',()=>startCamera(true));
   window.addEventListener('pagehide',()=>{stopCamera();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden&&live())clearInput();});
-  const api={startCamera,stopCamera,processLandmarks,cancelAutoStart(){autoStart=false;},
+  const api={startCamera,stopCamera,processLandmarks,resetInput:clearInput,cancelAutoStart(){autoStart=false;},
     getState:()=>({active:live(),loading:phase==='loading',modelReady:!!model,handCount,frames,delegate,gate:show.getState().pending,quality:phase==='running'?(handCount?'ok':'none'):phase})};
   window.SHADOWPLAY_RIG_V6=api;
   window.SHADOWPLAY_V6={...show,rig:api};

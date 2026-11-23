@@ -19,7 +19,6 @@
         <summary>演出设置</summary>
         <div class="menu">
           <button type="button" id="audioToggle" aria-pressed="false">静音</button>
-          <button type="button" id="voiceToggle">配音 · 原声</button>
           <button type="button" id="fullScreen">进入全屏</button>
           <hr>
           <button type="button" id="nextBeat" disabled>跳过本句</button>
@@ -58,9 +57,23 @@
         <button type="button" id="move" class="button primary" hidden>移步入庭</button>
         <button type="button" id="bow" class="button primary" hidden>作揖见礼</button>
         <button type="button" id="flourish" class="button primary" hidden>举袖亮相</button>
+        <button type="button" id="prevLine" class="button quiet" hidden disabled>上一句</button>
         <button type="button" id="skipLine" class="button quiet" hidden>下一句</button>
       </div>
     </div>
+    <div class="play-options" aria-label="演出模式设置">
+      <div class="option-set" role="group" aria-label="操影模式">
+        <span class="option-label">操影</span>
+        <button type="button" id="basicMode" aria-pressed="true">基础手势</button>
+        <button type="button" id="advancedMode" aria-pressed="false">手指进阶</button>
+      </div>
+      <div class="option-set" role="group" aria-label="对白推进方式">
+        <span class="option-label">台词</span>
+        <button type="button" id="autoDialogue" aria-pressed="true">自动下一句</button>
+        <button type="button" id="manualDialogue" aria-pressed="false">手动下一句</button>
+      </div>
+    </div>
+    <p id="modeHint">基础手势：移动手掌操影，双手配合触发剧情动作。</p>
     <p id="cameraNotice" role="status" aria-live="polite"></p>
     <ol class="score" id="score" aria-label="四景演出进度">
       <li><span>起</span>春庭待月</li><li><span>承</span>月门初见</li><li><span>转</span>花径对答</li><li><span>合</span>满月谢幕</li>
